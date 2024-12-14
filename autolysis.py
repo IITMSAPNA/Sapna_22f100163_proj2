@@ -55,12 +55,17 @@ if len(sys.argv) != 2:
     sys.exit(1)
 
 # Load dataset from CSV file
-csv_path = sys.argv[1]
-if not os.path.isfile(csv_path):
-    print(f"Error: File '{csv_path}' does not exist.")
+try:
+    csv_path = os.path.abspath(sys.argv[1])
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(f"Error: File '{csv_path}' does not exist.")
+    data = pd.read_csv(csv_path, encoding='ISO-8859-1')
+except FileNotFoundError as e:
+    print(e)
     sys.exit(1)
-
-data = pd.read_csv(csv_path, encoding='ISO-8859-1')
+except Exception as e:
+    print(f"An unexpected error occurred while loading the CSV: {e}")
+    sys.exit(1)
 
 # Compute statistical summaries and correlation matrix
 summary_stats = data.describe(include="all").transpose()
@@ -88,14 +93,29 @@ for col in data.select_dtypes(include=[np.number]).columns:
     plt.savefig(os.path.join(output_directory, f"{col}_distribution.png"))
     plt.close()
 
+# Generate and save pairplot
+sns.pairplot(data.select_dtypes(include=[np.number]))
+plt.savefig(os.path.join(output_directory, "pairplot.png"))
+plt.close()
+
+# Generate scatter plots for top correlated columns
+top_correlations = correlation_matrix.unstack().sort_values(ascending=False)
+top_pairs = top_correlations[top_correlations != 1].drop_duplicates().head(3)
+for (col1, col2) in top_pairs.index:
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(x=data[col1], y=data[col2])
+    plt.title(f'Scatter plot of {col1} vs {col2}')
+    plt.savefig(os.path.join(output_directory, f'scatter_{col1}_vs_{col2}.png'))
+    plt.close()
+
 # Notes on data analysis
 analysis_notes = (
     "- Summary statistics offer insights into metrics like mean, median, and standard deviation.\n"
     "- Missing values are highlighted for data quality assessment.\n"
     "- Correlation matrix highlights relationships among numerical columns.\n"
     "- Distribution plots visualize the distribution of data and identify outliers.\n"
-    "- Potential outliers can be identified and analyzed further using these plots.\n"
-    "- Data clustering can be explored with techniques like KMeans or DBSCAN."
+    "- Pairplot visualizes relationships and patterns between features.\n"
+    "- Clustering can be explored with KMeans or DBSCAN methods."
 )
 
 # Create prompt for LLM analysis
@@ -105,20 +125,20 @@ You are an AI analyst. Here is the dataset overview:
 - Columns: {list(data.columns)}
 - Data types: {data.dtypes.to_dict()}
 - Missing values: {missing_values.to_dict()}
-- Sample data: {sample_data}
+- Total Rows: {data.shape[0]}, Total Columns: {data.shape[1]}
+- Sample Data: {sample_data}
 
-Provide a brief analysis by identifying key trends, patterns, and relationships. Highlight anomalies or outliers as well.
+Provide a comprehensive analysis by identifying key trends, relationships, and anomalies. Highlight interesting features, possible clustering, and actionable insights.
 """
 
 # Request LLM analysis
-llm_analysis = request_llm_analysis(llm_prompt)
-
-# Fallback insights if LLM analysis fails
-if "error" in llm_analysis.lower() or "failed" in llm_analysis.lower():
+try:
+    llm_analysis = request_llm_analysis(llm_prompt)
+except Exception as e:
+    print(f"LLM request failed: {e}")
     llm_analysis = (
-        "Data exploration shows relationships among columns that can be further examined.\n"
-        "Use correlation matrices and distribution plots to identify key trends, anomalies, and patterns.\n"
-        "Address missing values to improve data quality."
+        "Fallback Analysis: Check data correlations using the heatmap. Investigate distributions for possible outliers. "
+        "Consider missing data imputation strategies to improve model performance. Use clustering methods like KMeans or DBSCAN."
     )
 
 # Merge LLM analysis with generic analysis notes
@@ -141,12 +161,15 @@ readme_content = f"""
 ### Correlation Matrix
 ![Correlation Matrix](correlation_matrix.png)
 
-### Distribution Plots
+### Pair Plot
+![Pair Plot](pairplot.png)
+
+### Scatter Plots
 """
 
-# Append distribution plots to the README file
-for col in data.select_dtypes(include=[np.number]).columns:
-    readme_content += f"![{col} Distribution]({col}_distribution.png)\n"
+# Append scatter plot images to README
+for (col1, col2) in top_pairs.index:
+    readme_content += f"![{col1} vs {col2} Scatter Plot](scatter_{col1}_vs_{col2}.png)\n"
 
 # Save README file to the output directory
 readme_path = os.path.join(output_directory, "README.md")
