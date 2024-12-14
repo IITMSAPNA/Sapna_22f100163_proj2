@@ -1,3 +1,18 @@
+
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "pandas",
+#   "numpy",
+#   "matplotlib",
+#   "seaborn",
+#   "requests",
+#   "python-dotenv",
+#   "tenacity"
+# ]
+# ///
+
+
 import os
 import sys
 import pandas as pd
@@ -22,18 +37,19 @@ if not API_KEY:
     sys.exit(1)
 
 # Function to request analysis from LLM
+from tenacity import retry, stop_after_attempt, wait_fixed
+
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def request_llm_analysis(prompt):
-    try:
-        print("Requesting analysis from LLM...")
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": MODEL_NAME,
-            "messages": [
-                {"role": "system", "content": "You are an AI analyst."},
-                {"role": "user", "content": prompt}
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [
+            {"role": "system", "content": "You are an AI analyst."},
+            {"role": "user", "content": prompt}
             ],
             "max_tokens": 800,
             "temperature": 0.7
